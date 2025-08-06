@@ -1,13 +1,14 @@
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit, join_room
 from collections import deque
-import random
 import os
+import random
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app)
 
+# Game state
 waiting_players = deque()
 active_games = {}
 scores = {}
@@ -16,23 +17,29 @@ scores = {}
 def index():
     return render_template('index.html', top_scorer=get_top_scorer())
 
+# ---------------- SOCKET EVENTS ----------------
+
 @socketio.on('join')
 def on_join(data):
     username = data['username']
-    play_with_bot = data.get('bot', False)
 
+    # Initialize score if new player
     if username not in scores:
         scores[username] = 0
 
-    if play_with_bot:
-        room = f"{username}_vs_bot"
+    # Play against computer
+    if data.get('mode') == 'computer':
+        room = f"{username}_vs_Computer"
         active_games[room] = {
             'players': [username, 'Computer'],
             'moves': {}
         }
         join_room(room)
         emit('start_game', {'room': room, 'opponent': 'Computer'}, room=room)
-    elif waiting_players:
+        return
+
+    # Multiplayer mode
+    if waiting_players:
         opponent = waiting_players.popleft()
         room = f"{username}_vs_{opponent}"
         active_games[room] = {
@@ -58,15 +65,18 @@ def on_play_move(data):
 
     game['moves'][username] = move
 
+    # Check if playing against computer
     if 'Computer' in game['players'] and 'Computer' not in game['moves']:
         game['moves']['Computer'] = random.choice(['r', 'p', 's'])
 
+    # Continue only if both players have made their moves
     if len(game['moves']) == 2:
         players = game['players']
         move1 = game['moves'][players[0]]
         move2 = game['moves'][players[1]]
         result = determine_result(move1, move2)
 
+        # Score update logic
         if result == 'draw':
             scores[players[0]] += 1
             scores[players[1]] += 1
@@ -75,6 +85,7 @@ def on_play_move(data):
         elif result == 'p2':
             scores[players[1]] += 2
 
+        # Send result to both players
         emit('result', {
             'players': players,
             'moves': [move1, move2],
@@ -86,7 +97,10 @@ def on_play_move(data):
             'top_scorer': get_top_scorer()
         }, room=room)
 
+        # Remove completed game
         del active_games[room]
+
+# ---------------- GAME LOGIC ----------------
 
 def determine_result(p1, p2):
     mapping = {'r': 0, 'p': 1, 's': -1}
@@ -105,7 +119,10 @@ def determine_result(p1, p2):
 def get_top_scorer():
     if not scores:
         return None
-    return max(scores.items(), key=lambda x: x[1])
+    top_player = max(scores, key=lambda k: scores[k])
+    return {'name': top_player, 'score': scores[top_player]}
+
+# ---------------- SERVER ----------------
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
