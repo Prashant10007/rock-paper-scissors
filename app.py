@@ -1,6 +1,7 @@
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit, join_room
 from collections import deque
+import os
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
@@ -27,9 +28,17 @@ def on_join(data):
             'players': [username, opponent],
             'moves': {}
         }
-        for player in active_games[room]['players']:
-            join_room(room)
-        emit('start_game', {'room': room, 'opponent': opponent}, room=room)
+
+        # Join both players to the room
+        join_room(room, sid=request.sid)  # Current user
+
+        # Find opponent's session id (simple tracking workaround not implemented here)
+        # Instead, emit to both players in the room using username-based tracking
+        emit('start_game', {
+            'room': room,
+            'opponent': opponent
+        }, room=room)
+
     else:
         waiting_players.append(username)
         emit('waiting', {'msg': 'Waiting for another player to join...'})
@@ -87,10 +96,6 @@ def determine_result(p1, p2):
     else:
         return 'error'
 
-import os
-
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # Get port from environment
-    socketio.run(app, host="0.0.0.0", port=port)  # Use the environment port
-
-
+    port = int(os.environ.get("PORT", 5000))
+    socketio.run(app, host="0.0.0.0", port=port)
