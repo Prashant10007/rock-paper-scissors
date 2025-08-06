@@ -90,5 +90,7 @@ def determine_result(p1, p2):
 import os
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # Use Render's provided port
-    socketio.run(app, host='0.0.0.0', port=port, debug=True)
+    port = int(os.environ.get("PORT", 5000))  # Get port from environment
+    socketio.run(app, host="0.0.0.0", port=port)  # Use the environment port
+
+
