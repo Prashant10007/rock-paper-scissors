@@ -1,103 +1,142 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
   <title>Rock Paper Scissors</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
   <style>
     body {
-      background: linear-gradient(to right, #1f1c2c, #928dab);
-      color: #fff;
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-      overflow: hidden;
+      font-family: Arial, sans-serif;
+      background: linear-gradient(to right, #232526, #414345);
+      color: white;
+      text-align: center;
+      padding: 40px;
     }
-
     h1 {
-      font-size: 3rem;
-      margin-bottom: 1rem;
+      font-size: 3em;
+      margin-bottom: 10px;
     }
-
-    #status {
-      font-size: 1.5rem;
-      margin-bottom: 2rem;
+    #game, #waiting, #result, #scoreboard {
+      display: none;
+      margin-top: 30px;
     }
-
-    .buttons button {
-      padding: 15px 30px;
+    .btn {
+      padding: 12px 24px;
       margin: 10px;
-      font-size: 1.2rem;
-      border: none;
-      border-radius: 10px;
+      font-size: 1.2em;
       cursor: pointer;
-      transition: background 0.3s ease;
+      border: none;
+      border-radius: 8px;
+      background-color: #ffffff;
+      color: #333;
     }
-
-    .buttons button:hover {
-      background-color: #333;
-      color: #fff;
+    .btn:hover {
+      background-color: #ddd;
     }
-
-    .by-text {
-      position: absolute;
-      bottom: 10px;
-      right: 20px;
-      font-size: 1.2rem;
-      font-weight: bold;
-      opacity: 0.6;
-      color: #ffffff;
+    input {
+      padding: 10px;
+      font-size: 1em;
+      width: 250px;
+      margin-bottom: 20px;
     }
   </style>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
 </head>
 <body>
   <h1>Rock Paper Scissors</h1>
-  <div id="status">Connecting...</div>
-  <div class="buttons" style="display: none;">
-    <button onclick="play('r')">Rock</button>
-    <button onclick="play('p')">Paper</button>
-    <button onclick="play('s')">Scissors</button>
+
+  <div id="login">
+    <input type="text" id="username" placeholder="Enter your name" />
+    <br>
+    <button class="btn" onclick="joinGame()">Join Game</button>
   </div>
 
-  <div class="by-text">BY Prashant.0G</div>
+  <div id="waiting">
+    <p>Waiting for another player to join...</p>
+  </div>
+
+  <div id="game">
+    <h2 id="opponent-info">You are playing against: </h2>
+    <p>Choose your move:</p>
+    <button class="btn" onclick="playMove('r')">Rock</button>
+    <button class="btn" onclick="playMove('p')">Paper</button>
+    <button class="btn" onclick="playMove('s')">Scissors</button>
+  </div>
+
+  <div id="result">
+    <h3>Result:</h3>
+    <p id="result-text"></p>
+  </div>
+
+  <div id="scoreboard">
+    <h3>Scores</h3>
+    <p id="scores"></p>
+  </div>
 
   <script>
     const socket = io();
-    const username = prompt("Enter your name:") || ('User_' + Math.floor(Math.random() * 1000));
-    let room = "";
+    let username = "";
+    let currentRoom = "";
 
-    socket.emit("join", { username });
+    function joinGame() {
+      username = document.getElementById('username').value.trim();
+      if (!username) {
+        alert("Please enter a username.");
+        return;
+      }
+      socket.emit('join', { username });
+      document.getElementById('login').style.display = 'none';
+      document.getElementById('waiting').style.display = 'block';
+    }
 
-    socket.on("waiting", (data) => {
-      document.getElementById("status").innerText = data.msg;
+    socket.on('waiting', (data) => {
+      document.getElementById('waiting').style.display = 'block';
     });
 
-    socket.on("start_game", (data) => {
-      room = data.room;
-      document.getElementById("status").innerText = `You are playing against ${data.opponent}`;
-      document.querySelector(".buttons").style.display = "block";
+    socket.on('start_game', (data) => {
+      currentRoom = data.room;
+      const opponent = data.opponent === username ? "Another player" : data.opponent;
+
+      document.getElementById('waiting').style.display = 'none';
+      document.getElementById('game').style.display = 'block';
+      document.getElementById('opponent-info').innerText = `You are playing against: ${opponent}`;
     });
 
-    socket.on("result", (data) => {
-      const { moves, winner, players, scores } = data;
-      const resultText =
-        winner === "draw"
-          ? `Draw! You both chose ${moves[0]}`
-          : `${players[winner === "p1" ? 0 : 1]} wins! (${moves[0]} vs ${moves[1]})`;
-      document.getElementById("status").innerText = resultText +
-        `\n\nScores: ${players[0]}: ${scores[players[0]]}, ${players[1]}: ${scores[players[1]]}`;
-      document.querySelector(".buttons").style.display = "none";
+    function playMove(move) {
+      socket.emit('play_move', {
+        username: username,
+        room: currentRoom,
+        move: move
+      });
+      document.getElementById('game').style.display = 'none';
+    }
+
+    socket.on('result', (data) => {
+      const [p1, p2] = data.players;
+      const [m1, m2] = data.moves;
+      let winner = "";
+
+      if (data.winner === 'draw') {
+        winner = "It's a draw!";
+      } else if (data.winner === 'p1') {
+        winner = `${p1} wins!`;
+      } else if (data.winner === 'p2') {
+        winner = `${p2} wins!`;
+      } else {
+        winner = "An error occurred.";
+      }
+
+      document.getElementById('result-text').innerText = `
+        ${p1} played ${convertMove(m1)} | ${p2} played ${convertMove(m2)}\n${winner}
+      `;
+      document.getElementById('result').style.display = 'block';
+
+      const scores = data.scores;
+      document.getElementById('scores').innerText = `${p1}: ${scores[p1]} | ${p2}: ${scores[p2]}`;
+      document.getElementById('scoreboard').style.display = 'block';
     });
 
-    function play(move) {
-      socket.emit("play_move", { username, move, room });
-      document.getElementById("status").innerText = "Waiting for opponent's move...";
-      document.querySelector(".buttons").style.display = "none";
+    function convertMove(code) {
+      return code === 'r' ? 'Rock' : code === 'p' ? 'Paper' : 'Scissors';
     }
   </script>
 </body>
