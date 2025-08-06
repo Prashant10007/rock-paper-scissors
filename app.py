@@ -1,4 +1,4 @@
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit, join_room
 from collections import deque
 import os
@@ -8,28 +8,28 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!'
 socketio = SocketIO(app)
 
-# Game state
+# Global state
 waiting_players = deque()
 active_games = {}
 scores = {}
+top_scorer = {"name": "", "score": 0}
 
 @app.route('/')
 def index():
-    return render_template('index.html', top_scorer=get_top_scorer())
-
-# ---------------- SOCKET EVENTS ----------------
+    return render_template('index.html')
 
 @socketio.on('join')
 def on_join(data):
     username = data['username']
+    mode = data.get('mode', 'friend')  # 'friend' or 'computer'
 
-    # Initialize score if new player
     if username not in scores:
         scores[username] = 0
+    update_top_scorer()
 
-    # Play against computer
-    if data.get('mode') == 'computer':
-        room = f"{username}_vs_Computer"
+    if mode == 'computer':
+        # Create a virtual game with the computer
+        room = f"{username}_vs_computer"
         active_games[room] = {
             'players': [username, 'Computer'],
             'moves': {}
@@ -38,7 +38,7 @@ def on_join(data):
         emit('start_game', {'room': room, 'opponent': 'Computer'}, room=room)
         return
 
-    # Multiplayer mode
+    # Multiplayer: match with waiting player or wait
     if waiting_players:
         opponent = waiting_players.popleft()
         room = f"{username}_vs_{opponent}"
@@ -65,43 +65,41 @@ def on_play_move(data):
 
     game['moves'][username] = move
 
-    # Check if playing against computer
+    # If playing against the computer, make the move immediately
     if 'Computer' in game['players'] and 'Computer' not in game['moves']:
         game['moves']['Computer'] = random.choice(['r', 'p', 's'])
 
-    # Continue only if both players have made their moves
     if len(game['moves']) == 2:
         players = game['players']
         move1 = game['moves'][players[0]]
         move2 = game['moves'][players[1]]
         result = determine_result(move1, move2)
 
-        # Score update logic
+        # Update scores
         if result == 'draw':
             scores[players[0]] += 1
-            scores[players[1]] += 1
+            if players[1] != 'Computer':
+                scores[players[1]] += 1
         elif result == 'p1':
             scores[players[0]] += 2
-        elif result == 'p2':
+        elif result == 'p2' and players[1] != 'Computer':
             scores[players[1]] += 2
 
-        # Send result to both players
+        update_top_scorer()
+
         emit('result', {
             'players': players,
             'moves': [move1, move2],
             'winner': result,
             'scores': {
                 players[0]: scores[players[0]],
-                players[1]: scores[players[1]]
-            },
-            'top_scorer': get_top_scorer()
+                players[1]: scores[players[1]] if players[1] != 'Computer' else 'Bot'
+            }
         }, room=room)
 
-        # Remove completed game
         del active_games[room]
 
-# ---------------- GAME LOGIC ----------------
-
+# Helper function to determine round winner
 def determine_result(p1, p2):
     mapping = {'r': 0, 'p': 1, 's': -1}
     you = mapping[p1]
@@ -116,14 +114,15 @@ def determine_result(p1, p2):
     else:
         return 'error'
 
-def get_top_scorer():
-    if not scores:
-        return None
-    top_player = max(scores, key=lambda k: scores[k])
-    return {'name': top_player, 'score': scores[top_player]}
+# Update top scorer for the entire platform
+def update_top_scorer():
+    global top_scorer
+    if scores:
+        top_name, top_score = max(scores.items(), key=lambda x: x[1])
+        top_scorer = {"name": top_name, "score": top_score}
+        socketio.emit('top_scorer', top_scorer)
 
-# ---------------- SERVER ----------------
-
+# Run the app
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     socketio.run(app, host="0.0.0.0", port=port)
